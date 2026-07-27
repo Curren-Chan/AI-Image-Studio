@@ -1,0 +1,10 @@
+{
+  "theme": "Dark",
+  "translation_provider": "openai",
+  "ui_mode": "simple",
+  "balance_openai": "10.00",
+  "balance_fal": "10.00",
+  "balance_grok": "10.00",
+  "balance_hotapi": "10.00"
+}
+

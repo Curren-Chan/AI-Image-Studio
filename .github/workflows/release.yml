@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Archive version label (for example, v4.8.0-rc1)"
+        required: true
+        default: "manual"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - run: python scripts/security_check.py
+      - run: python -m compileall -q api core database plugins services ui utils app.py main.py
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - name: Build portable application
+        run: pyinstaller --noconfirm --clean GPTImageStudio.spec
+
+      - name: Choose version label
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "label=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "label=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Archive Windows bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/GPTImageStudio -DestinationPath "GPTImageStudio-Windows-${{ steps.version.outputs.label }}.zip"
+
+      - name: Archive Unix bundle
+        if: runner.os != 'Windows'
+        shell: bash
+        run: tar -C dist -czf "GPTImageStudio-${RUNNER_OS}-${{ steps.version.outputs.label }}.tar.gz" GPTImageStudio
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GPTImageStudio-${{ runner.os }}
+          path: |
+            GPTImageStudio-*.zip
+            GPTImageStudio-*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-assets/*
+

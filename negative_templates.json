@@ -1,0 +1,5 @@
+{
+    "低画質・不自然さ排除": "low quality, worst quality, distorted anatomy, extra limbs, bad proportions, bad hands, blurry",
+    "文字・ロゴ・署名排除": "text, watermark, logo, signature, copyright, writing, letters, branding",
+    "汎用ネガティブプロンプト": "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, artist name, deformed, ugly, mutilated, out of frame, extra limbs, bad proportions, duplicate"
+}

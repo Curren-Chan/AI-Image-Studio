@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/YOUR_GITHUB_USERNAME/GPT-Image-Studio/discussions
+    about: Use Discussions for setup questions, showcases, and early ideas.
+  - name: Security vulnerability
+    url: https://github.com/YOUR_GITHUB_USERNAME/GPT-Image-Studio/security/advisories/new
+    about: Report vulnerabilities privately. Never open a public security issue.
+

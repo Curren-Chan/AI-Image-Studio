@@ -1,0 +1,65 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging and build output
+build/
+dist/
+*.egg-info/
+*.egg
+*.spec.bak
+pip-wheel-metadata/
+
+# Application runtime data
+database.db
+database.db-*
+settings.json
+logs/
+outputs/
+*.log
+*.tmp
+*.deleting-*.tmp
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating systems
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Test and local release artifacts
+.tox/
+.nox/
+test-results/
+coverage.xml
+*.zip
+*.tar.gz
+
