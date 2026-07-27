@@ -81,7 +81,7 @@ ffmpeg -i demo-source.mp4 -vf "fps=15,scale=1280:-1:flags=lanczos,split[s0][s1];
 | 10–12 s | Gallery view shows variations, favorite, and metadata/context restore. | **Every result stays reusable.** | Quick 2-shot montage. |
 | 12–15 s | Logo and hero result on dark background. | **GPT Image Studio**  
 **Open source · Star on GitHub**  
-`github.com/YOUR_GITHUB_USERNAME/GPT-Image-Studio` | Hold URL for a full 2 seconds. |
+`github.com/Curren-Chan/AI-Image-Studio` | Hold URL for a full 2 seconds. |
 
 ## Platform-specific edits
 
@@ -97,4 +97,3 @@ ffmpeg -i demo-source.mp4 -vf "fps=15,scale=1280:-1:flags=lanczos,split[s0][s1];
 - [ ] The GIF loops cleanly and is below 10 MB.
 - [ ] The video URL remains readable for at least 2 seconds.
 - [ ] All visuals match the current release UI.
-

@@ -2,8 +2,8 @@
 
 ## One-time repository setup
 
-- [ ] Replace every `YOUR_GITHUB_USERNAME` occurrence with the final GitHub owner.
-- [ ] Confirm the repository name. If it is not `GPT-Image-Studio`, update badges, clone commands, discussion links, and video end cards.
+- [x] Set the GitHub owner to `Curren-Chan`.
+- [x] Confirm the repository name as `AI-Image-Studio` and align badges, clone commands, discussion links, and video end cards.
 - [ ] Update the `LICENSE` copyright holder if a person or organization should be named.
 - [ ] Initialize a fresh Git repository from this `github/` directory; do not copy the parent `.git` history.
 - [ ] Make the default branch `main` and require CI before merge.
@@ -15,7 +15,7 @@
 Find unresolved placeholders:
 
 ```bash
-git grep -n "YOUR_GITHUB_USERNAME"
+git grep -n "YOUR_" || true
 ```
 
 ## Release candidate verification
@@ -38,4 +38,3 @@ git grep -n "YOUR_GITHUB_USERNAME"
 3. Publish the 15-second native video on X and Product Hunt using `docs/visual_plan.md`.
 4. Post a technically honest Show HN with architecture, mock-mode instructions, limitations, and a direct repository link.
 5. Answer the first issues quickly, label beginner-friendly work, and turn repeated questions into docs.
-

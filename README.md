@@ -6,11 +6,11 @@
 
 ### Turn an idea into a production-ready visual — without juggling five different AI dashboards.
 
-[![CI](https://github.com/YOUR_GITHUB_USERNAME/GPT-Image-Studio/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_GITHUB_USERNAME/GPT-Image-Studio/actions/workflows/ci.yml)
+[![CI](https://github.com/Curren-Chan/AI-Image-Studio/actions/workflows/ci.yml/badge.svg)](https://github.com/Curren-Chan/AI-Image-Studio/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![PySide6](https://img.shields.io/badge/UI-PySide6-41cd52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
-[![GitHub stars](https://img.shields.io/github/stars/YOUR_GITHUB_USERNAME/GPT-Image-Studio?style=social)](https://github.com/YOUR_GITHUB_USERNAME/GPT-Image-Studio/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/Curren-Chan/AI-Image-Studio?style=social)](https://github.com/Curren-Chan/AI-Image-Studio/stargazers)
 
 [Quick Start](#-quick-start) · [Features](#-key-features) · [日本語](#-日本語) · [Contributing](CONTRIBUTING.md)
 
@@ -55,8 +55,8 @@ The GIF above is generated from the real application UI. To record a launch-read
 ### 1. Clone and create an environment
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/GPT-Image-Studio.git
-cd GPT-Image-Studio
+git clone https://github.com/Curren-Chan/AI-Image-Studio.git
+cd AI-Image-Studio
 python -m venv .venv
 ```
 
@@ -140,7 +140,7 @@ The repository intentionally excludes credentials, runtime databases, local sett
 - Optional local model adapters
 - Signed installers and automatic update checks
 
-Have an idea? Start a [Discussion](https://github.com/YOUR_GITHUB_USERNAME/GPT-Image-Studio/discussions) or open a focused issue.
+Have an idea? Start a [Discussion](https://github.com/Curren-Chan/AI-Image-Studio/discussions) or open a focused issue.
 
 ## 🇯🇵 日本語
 
@@ -175,4 +175,3 @@ Released under the [MIT License](LICENSE).
 **If this makes your creative loop faster, consider starring the repository. ⭐**
 
 </div>
-
