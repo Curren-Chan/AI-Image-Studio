@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="resources/user_guide_header.png" alt="GPT Image Studio" width="720">
+<img src="resources/user_guide_header.png" alt="AI Image Studio" width="720">
 
-# 🎨 GPT Image Studio
+# 🎨 AI Image Studio
 
 ### Turn an idea into a production-ready visual — without juggling five different AI dashboards.
 
