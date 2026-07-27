@@ -106,11 +106,18 @@ class MainWindow(QMainWindow):
         # Add Tabs
         self.tabs.addTab(txt2img_widget, "🎨 Generation")
         self.tabs.addTab(self.project_panel, "📁 Projects")
-        self.tabs.addTab(self.gallery_panel, "🖼️ Gallery")
+        self.gallery_tab_index = self.tabs.addTab(self.gallery_panel, "🖼️ Gallery")
         self.tabs.addTab(self.model_catalog_panel, "🤖 Model Catalog")
         self.tabs.addTab(self.queue_panel, "⏳ Job Queue")
         self.tabs.addTab(self.tips_panel, "💡 Tips")
         self.tabs.addTab(self.settings_panel, "⚙️ Settings")
+        
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+        
+        # Gallery async warmup & grayout handlers
+        self.gallery_panel.loading_started.connect(self.on_gallery_loading_started)
+        self.gallery_panel.loading_finished.connect(self.on_gallery_loading_finished)
+        QTimer.singleShot(50, self.gallery_panel.start_async_load)
         
         main_layout.addWidget(self.tabs)
         
@@ -118,10 +125,24 @@ class MainWindow(QMainWindow):
         self.status_panel = StatusPanel(self.coordinator)
         main_layout.addWidget(self.status_panel)
 
+    def on_gallery_loading_started(self):
+        if hasattr(self, 'gallery_tab_index'):
+            self.tabs.setTabEnabled(self.gallery_tab_index, False)
+            self.tabs.setTabText(self.gallery_tab_index, "🖼️ Gallery (読み込み中...)")
+
+    def on_gallery_loading_finished(self):
+        if hasattr(self, 'gallery_tab_index'):
+            self.tabs.setTabEnabled(self.gallery_tab_index, True)
+            self.tabs.setTabText(self.gallery_tab_index, "🖼️ Gallery")
+
+    def on_tab_changed(self, index: int):
+        widget = self.tabs.widget(index)
+        if hasattr(widget, "ensure_initialized"):
+            widget.ensure_initialized()
+
     def apply_theme(self, theme: str):
         dark_qss = """
         QMainWindow { background-color: #121212; }
-        QLabel, QRadioButton, QCheckBox { color: #f2f2f7; }
         QTabWidget::pane { border: 1px solid #2c2c2e; background-color: #1e1e1e; border-radius: 6px; }
         QTabBar::tab { background-color: #2c2c2e; color: #8e8e93; padding: 8px 12px; border-radius: 4px; margin-right: 4px; }
         QTabBar::tab:selected { background-color: #0a84ff; color: white; font-weight: bold; }

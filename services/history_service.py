@@ -2,12 +2,39 @@ import os
 import json
 import logging
 from typing import Any
+import os
+import json
+import logging
+from typing import Any
 from services.base import BaseService
 
 class HistoryService(BaseService):
     def __init__(self, db_service=None):
         super().__init__(db_service)
         
+    def cleanup_duplicate_records(self) -> int:
+        """Removes duplicate image records from SQLite, keeping the row with the largest ID."""
+        try:
+            with self.connection() as conn:
+                cursor = conn.cursor()
+                # Delete duplicate records keeping the one with max(id)
+                cursor.execute("""
+                    DELETE FROM images 
+                    WHERE id NOT IN (
+                        SELECT MAX(id) 
+                        FROM images 
+                        GROUP BY filename
+                    );
+                """)
+                deleted_count = cursor.rowcount
+                conn.commit()
+                if deleted_count > 0:
+                    logging.info(f"[DB CLEANUP] Cleaned up {deleted_count} duplicate image records.")
+                return deleted_count
+        except Exception as e:
+            logging.error(f"[DB CLEANUP] Failed to cleanup duplicate image records: {e}")
+            return 0
+
     def add_image_record(self, project_id: int | None, filename: str, image_path: str, prompt_jp: str, prompt_en: str, negative_prompt: str, size: str, style: str, quality: str, cost: float, model_name: str | None = None, provider: str | None = None, style_preset: str | None = None, expert_params: str | None = None, model_id: str | None = None) -> int:
         conn = None
         try:
@@ -23,6 +50,7 @@ class HistoryService(BaseService):
                         project_id,
                     )
                     project_id = None
+            
             cursor.execute("""
                 INSERT INTO images (project_id, filename, image_path, prompt_jp, prompt_en, negative_prompt, size, style, quality, cost, model_name, provider, style_preset, expert_params, model_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
@@ -37,8 +65,8 @@ class HistoryService(BaseService):
             if conn is not None:
                 conn.close()
 
-    def get_history(self, project_id: int | None = None, search_query: str | None = None, favorite_only: bool = False) -> list:
-        """Retrieves image generation history from SQLite, matching filters and search queries."""
+    def get_history(self, project_id: int | None = None, search_query: str | None = None, favorite_only: bool = False, sort_order: str = "newest") -> list:
+        """Retrieves image generation history from SQLite, matching filters, search queries, and sort order."""
         try:
             with self.connection() as conn:
                 cursor = conn.cursor()
@@ -58,7 +86,14 @@ class HistoryService(BaseService):
                     like_term = f"%{search_query.strip()}%"
                     params.extend([like_term] * 6)
 
-                sql += " ORDER BY created_at DESC;"
+                if sort_order == "oldest":
+                    sql += " ORDER BY created_at ASC, id ASC;"
+                elif sort_order == "favorite":
+                    sql += " ORDER BY favorite DESC, created_at DESC, id DESC;"
+                elif sort_order == "filename":
+                    sql += " ORDER BY filename ASC, id ASC;"
+                else:
+                    sql += " ORDER BY created_at DESC, id DESC;"
                 cursor.execute(sql, params)
                 rows = cursor.fetchall()
             

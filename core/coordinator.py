@@ -50,13 +50,21 @@ class Coordinator:
         conn = self.db_service.get_connection()
         try:
             setup_schema(conn)
-
-            # Backward compatibility and recovery of outputs whose DB write
-            # was interrupted.
-            output_dir = os.path.join(project_root, "outputs")
-            import_legacy_history(conn, output_dir)
         finally:
             conn.close()
+
+        # Run legacy history recovery in background thread to avoid blocking startup
+        import threading
+        output_dir = os.path.join(project_root, "outputs")
+        def _bg_import():
+            bg_conn = self.db_service.get_connection()
+            try:
+                import_legacy_history(bg_conn, output_dir)
+            except Exception as e:
+                logging.warning(f"Background legacy history import failed: {e}")
+            finally:
+                bg_conn.close()
+        threading.Thread(target=_bg_import, daemon=True).start()
         
         # 2. Initialize Service Layer
         self.settings_service = SettingsService(self.db_service, project_root=project_root)
@@ -64,6 +72,7 @@ class Coordinator:
         self.prompt_service = PromptService(None, self.db_service) # api_client set below
         self.template_service = TemplateService(self.db_service, project_root=project_root)
         self.history_service = HistoryService(self.db_service)
+        self.history_service.cleanup_duplicate_records()
         self.gallery_service = GalleryService(self.db_service)
         self.queue_service = QueueService(self.db_service)
         self.undo_service = UndoService(self.db_service)

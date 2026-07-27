@@ -139,6 +139,22 @@ class GenerationService(BaseService):
         else:
             return {"success": False, "error": f"Unsupported generation mode: {mode}"}
 
+        if mode == "edit" and image_path and not self.session_history:
+            try:
+                records = self.history_service.get_history()
+                for rec in records:
+                    if rec.get("image_path") == image_path or os.path.basename(rec.get("image_path", "")) == os.path.basename(image_path):
+                        meta = rec.get("metadata", {})
+                        self.set_context(
+                            prompt_jp=meta.get("prompt_jp", ""),
+                            prompt_en=meta.get("prompt_en", ""),
+                            size=meta.get("size", size),
+                            negative_prompt=meta.get("negative_prompt", ""),
+                        )
+                        break
+            except Exception as e:
+                logging.warning(f"Could not hydrate context from image_path: {e}")
+
         try:
             prompt_en, text_cost = self._translate_prompt(
                 prompt_jp,

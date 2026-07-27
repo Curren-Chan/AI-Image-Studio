@@ -6,10 +6,11 @@ from ui.image_loader import load_scaled_pixmap
 class ThumbnailCard(QFrame):
     clicked = Signal(str, dict) # emits (image_path, metadata)
 
-    def __init__(self, image_path: str, metadata: dict, parent=None):
+    def __init__(self, image_path: str, metadata: dict, parent=None, pixmap=None):
         super().__init__(parent)
         self.image_path = image_path
         self.metadata = metadata
+        self.preset_pixmap = pixmap
         self.init_ui()
 
     def init_ui(self):
@@ -37,7 +38,7 @@ class ThumbnailCard(QFrame):
         self.thumb.setAlignment(Qt.AlignCenter)
         self.thumb.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
-        pix = load_scaled_pixmap(self.image_path, 100, 100)
+        pix = self.preset_pixmap if self.preset_pixmap and not self.preset_pixmap.isNull() else load_scaled_pixmap(self.image_path, 100, 100)
         if not pix.isNull():
             self.thumb.setPixmap(pix)
         layout.addWidget(self.thumb, 0, Qt.AlignCenter)

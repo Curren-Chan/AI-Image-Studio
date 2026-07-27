@@ -16,11 +16,17 @@ class ModelCatalogPanel(QWidget):
         self.coordinator = coordinator
         self.card_widgets = {} # model_id -> dict of widgets
         self.current_theme = self.coordinator.settings_service.get_setting("theme", "Dark")
+        self._initialized = False
         self.init_ui()
-        self.load_catalog()
         
         event_bus.theme_changed.connect(self.on_theme_changed)
         self.apply_theme_styles()
+
+    def ensure_initialized(self):
+        """Lazy initializer called when Model Catalog tab is first shown."""
+        if not self._initialized:
+            self._initialized = True
+            self.load_catalog()
 
     def on_theme_changed(self, theme_name: str):
         self.current_theme = theme_name

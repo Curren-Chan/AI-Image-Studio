@@ -4,7 +4,18 @@ import os
 from datetime import datetime
 
 
+import re
+
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".img")
+
+
+def normalize_path(path: str) -> str:
+    if not path:
+        return ""
+    norm = os.path.normpath(path)
+    if len(norm) >= 2 and norm[1] == ":":
+        return norm[0].lower() + norm[1:]
+    return norm
 
 
 def import_legacy_history(conn, output_dir):
@@ -40,8 +51,13 @@ def import_legacy_history(conn, output_dir):
         )
         if image_path is None:
             continue
+            
+        norm_image_path = normalize_path(image_path)
+        base_img_name = os.path.basename(image_path)
+
         if cursor.execute(
-            "SELECT 1 FROM images WHERE image_path = ? LIMIT 1;", (image_path,)
+            "SELECT 1 FROM images WHERE filename = ? OR lower(image_path) = ? LIMIT 1;", 
+            (base_img_name, norm_image_path.lower())
         ).fetchone():
             continue
 
@@ -56,11 +72,17 @@ def import_legacy_history(conn, output_dir):
             except (TypeError, ValueError):
                 cost = 0.0
 
-            raw_time = meta.get("timestamp", "")
-            try:
-                created_at = datetime.strptime(str(raw_time), "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                created_at = datetime.fromtimestamp(os.path.getmtime(image_path))
+            # Try parsing timestamp from filename first (IMG_YYYYMMDD_HHMMSS)
+            match_fn = re.search(r"IMG_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})", base_img_name)
+            if match_fn:
+                created_at_str = f"{match_fn.group(1)}-{match_fn.group(2)}-{match_fn.group(3)} {match_fn.group(4)}:{match_fn.group(5)}:{match_fn.group(6)}"
+            else:
+                raw_time = meta.get("timestamp", "")
+                try:
+                    created_at = datetime.strptime(str(raw_time), "%Y-%m-%d %H:%M:%S")
+                    created_at_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    created_at_str = datetime.fromtimestamp(os.path.getmtime(image_path)).strftime("%Y-%m-%d %H:%M:%S")
 
             cursor.execute(
                 """
@@ -73,7 +95,7 @@ def import_legacy_history(conn, output_dir):
                 """,
                 (
                     project_id,
-                    os.path.basename(image_path),
+                    base_img_name,
                     image_path,
                     str(meta.get("prompt_jp", "") or ""),
                     str(meta.get("prompt_en", "") or ""),
@@ -83,7 +105,7 @@ def import_legacy_history(conn, output_dir):
                     str(meta.get("quality", "standard") or "standard"),
                     cost,
                     1 if meta.get("favorite", False) else 0,
-                    created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    created_at_str,
                     meta.get("model_id"),
                     meta.get("model_name"),
                     meta.get("provider"),

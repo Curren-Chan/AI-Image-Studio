@@ -2,9 +2,10 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton, 
     QFileDialog, QMessageBox, QLabel, QGridLayout,
-    QSplitter, QTextEdit
+    QSplitter, QTextEdit, QComboBox
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QThread
+from PySide6.QtGui import QImage, QPixmap
 from core.event_bus import event_bus
 from ui.file_utils import open_local_path
 from ui.image_loader import load_scaled_pixmap
@@ -12,8 +13,39 @@ from ui.widgets.thumbnail_card import ThumbnailCard
 
 from ui.panels.preview_panel import ClickableLabel
 
+
+class GalleryLoaderWorker(QThread):
+    data_loaded = Signal(list)
+
+    def __init__(self, coordinator, sort_order: str = "newest", parent=None):
+        super().__init__(parent)
+        self.coordinator = coordinator
+        self.sort_order = sort_order
+
+    def run(self):
+        project_id = self.coordinator.project_service.get_active_project_id()
+        history = self.coordinator.history_service.get_history(
+            project_id=project_id,
+            search_query="",
+            favorite_only=False,
+            sort_order=self.sort_order,
+        )
+        loaded_items = []
+        for item in history:
+            image_path = item["image_path"]
+            if not os.path.isfile(image_path):
+                continue
+            qimg = QImage(image_path)
+            if not qimg.isNull():
+                qimg = qimg.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            loaded_items.append((image_path, item["metadata"], qimg))
+        self.data_loaded.emit(loaded_items)
+
+
 class GalleryPanel(QWidget):
     context_load_requested = Signal(str, dict)
+    loading_started = Signal()
+    loading_finished = Signal()
 
     def __init__(self, coordinator, parent=None):
         super().__init__(parent)
@@ -24,12 +56,71 @@ class GalleryPanel(QWidget):
         self._refreshing = False
         self._refresh_pending = False
         self._deleting = False
+        self._initialized = False
+        self._loading = False
+        self.worker = None
         self.init_ui()
-        self.refresh_gallery()
         
         # Subscribe to EventBus
-        event_bus.gallery_refresh_requested.connect(self.refresh_gallery)
+        event_bus.gallery_refresh_requested.connect(self.on_gallery_refresh_requested)
         event_bus.project_changed.connect(self.on_project_changed)
+
+    def ensure_initialized(self):
+        """Lazy initializer called when tab is first shown if background load was not started."""
+        if not self._initialized and not self._loading:
+            self.start_async_load()
+
+    def start_async_load(self):
+        """Starts loading gallery items in a background thread."""
+        if self._initialized or self._loading:
+            return
+        self._loading = True
+        self.loading_started.emit()
+        sort_order = self.sort_combo.currentData() if hasattr(self, "sort_combo") else "newest"
+        self.worker = GalleryLoaderWorker(self.coordinator, sort_order=sort_order, parent=self)
+        self.worker.data_loaded.connect(self._on_async_data_loaded)
+        self.worker.start()
+
+    def _on_async_data_loaded(self, loaded_items):
+        for i in reversed(range(self.grid_layout.count())):
+            widget = self.grid_layout.itemAt(i).widget()
+            if widget:
+                self.grid_layout.removeWidget(widget)
+                widget.deleteLater()
+
+        self._clear_current_selection()
+        self.cards.clear()
+
+        for index, (image_path, metadata, qimg) in enumerate(loaded_items):
+            pixmap = QPixmap.fromImage(qimg) if qimg and not qimg.isNull() else None
+            card = ThumbnailCard(image_path, metadata, self.grid_widget, pixmap=pixmap)
+            card.clicked.connect(self.on_card_clicked)
+            self.cards.append(card)
+            self.grid_layout.addWidget(card, index // 3, index % 3)
+
+        self._initialized = True
+        self._loading = False
+        self.loading_finished.emit()
+
+    def on_gallery_refresh_requested(self):
+        if self._initialized:
+            self.refresh_gallery()
+
+    def on_sort_changed(self):
+        """Re-sort current cards in memory for instant feedback."""
+        if not self.cards:
+            return
+        sort_mode = self.sort_combo.currentData()
+        if sort_mode == "newest":
+            self.cards.sort(key=lambda c: str(c.metadata.get("timestamp", "")), reverse=True)
+        elif sort_mode == "oldest":
+            self.cards.sort(key=lambda c: str(c.metadata.get("timestamp", "")), reverse=False)
+        elif sort_mode == "favorite":
+            self.cards.sort(key=lambda c: (0 if c.metadata.get("favorite", False) else 1, str(c.metadata.get("timestamp", ""))), reverse=False)
+        elif sort_mode == "filename":
+            self.cards.sort(key=lambda c: str(c.metadata.get("filename", "")).lower(), reverse=False)
+
+        self.rearrange_grid()
         
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -44,6 +135,28 @@ class GalleryPanel(QWidget):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(10)
+
+        # Top Sort Toolbar
+        sort_bar = QWidget()
+        sort_layout = QHBoxLayout(sort_bar)
+        sort_layout.setContentsMargins(0, 0, 0, 0)
+        sort_layout.setSpacing(8)
+
+        lbl_sort = QLabel("並び替え (Sort):")
+        lbl_sort.setStyleSheet("font-weight: bold; color: #8e8e93;")
+        sort_layout.addWidget(lbl_sort)
+
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItem("📅 日時が新しい順 (Newest First)", "newest")
+        self.sort_combo.addItem("📅 日時が古い順 (Oldest First)", "oldest")
+        self.sort_combo.addItem("⭐ お気に入り優先 (Favorites First)", "favorite")
+        self.sort_combo.addItem("🔤 ファイル名順 (Name A-Z)", "filename")
+        self.sort_combo.setFixedHeight(32)
+        self.sort_combo.currentIndexChanged.connect(self.on_sort_changed)
+        sort_layout.addWidget(self.sort_combo, 1)
+        sort_layout.addStretch()
+
+        left_layout.addWidget(sort_bar)
         
         # Scroll Area for Thumbnails Grid
         self.scroll_area = QScrollArea()
@@ -137,10 +250,12 @@ class GalleryPanel(QWidget):
             self.cards.clear()
 
             project_id = self.coordinator.project_service.get_active_project_id()
+            sort_order = self.sort_combo.currentData() if hasattr(self, "sort_combo") else "newest"
             history = self.coordinator.history_service.get_history(
                 project_id=project_id,
                 search_query="",
                 favorite_only=False,
+                sort_order=sort_order,
             )
 
             for item in history:
@@ -214,7 +329,8 @@ class GalleryPanel(QWidget):
         self.context_load_requested.emit(self.selected_card.image_path, meta)
 
     def on_project_changed(self, project_id: int):
-        self.refresh_gallery()
+        if self._initialized:
+            self.refresh_gallery()
 
     def select_all(self):
         for card in self.cards:

@@ -28,7 +28,22 @@ class OpenAiImageProvider(BaseImageProvider):
             self.api_client.image_model = old_model
 
     def edit(self, model_endpoint: str, image_path: str, prompt: str, size: str, quality: str = "Medium", mask_path: str | None = None, expert_params: str | None = None) -> tuple:
-        # OpenAI Direct does not robustly support image editing on modern models (dall-e-3 / gpt-image-2).
-        # To prevent failures, we route this to standard text-to-image generation as requested by user.
-        logging.info("[OPENAI] Image Edit not supported directly. Routing to standard image generation.")
-        return self.generate(model_endpoint, prompt, size, quality, expert_params)
+        import os
+        from api.vision_client import VisionClient
+        logging.info(f"[OPENAI EDIT] Performing Vision-guided Image Edit on source image: {image_path}")
+        
+        source_description = ""
+        if image_path and os.path.isfile(image_path):
+            try:
+                vision_client = VisionClient(self.api_client)
+                source_description = vision_client.describe_image(image_path)
+                logging.info(f"[OPENAI EDIT] Extracted Vision context: {source_description}")
+            except Exception as e:
+                logging.warning(f"[OPENAI EDIT] Vision extraction skipped: {e}")
+
+        if source_description:
+            fused_prompt = f"Based on the visual elements of the original source image ('{source_description}'), create a modified variation incorporating these updates: {prompt}"
+        else:
+            fused_prompt = prompt
+
+        return self.generate(model_endpoint, fused_prompt, size, quality, expert_params)

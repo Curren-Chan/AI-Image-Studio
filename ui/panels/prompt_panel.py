@@ -443,11 +443,6 @@ class PromptPanel(QWidget):
                 continue
                 
             self.model_menu.addItem(model_meta["display_name"], model_id)
-            
-            # Add to expert stack
-            expert_panel = ExpertModelPanel(model_id, model_meta)
-            expert_panel.setProperty("model_id", model_id)
-            self.expert_stack_widget.addWidget(expert_panel)
 
         if self.model_menu.count() == 0:
             self.model_menu.addItem("No compatible enabled models", None)
@@ -477,13 +472,19 @@ class PromptPanel(QWidget):
         if not model_meta:
             return
             
-        # Sync expert stacked container to match model selection
+        # Dynamically create & sync expert stacked container matching model selection
         if hasattr(self, 'expert_stack_widget'):
+            found_widget = None
             for i in range(self.expert_stack_widget.count()):
                 widget = self.expert_stack_widget.widget(i)
                 if widget.property("model_id") == model_id:
-                    self.expert_stack_widget.setCurrentWidget(widget)
+                    found_widget = widget
                     break
+            if not found_widget:
+                found_widget = ExpertModelPanel(model_id, model_meta)
+                found_widget.setProperty("model_id", model_id)
+                self.expert_stack_widget.addWidget(found_widget)
+            self.expert_stack_widget.setCurrentWidget(found_widget)
             
         # Update size menu presets
         self.size_menu.blockSignals(True)
@@ -519,12 +520,22 @@ class PromptPanel(QWidget):
     def on_size_preset_changed(self, text):
         self.custom_size_box.setVisible("Custom..." in text)
 
+    @staticmethod
+    def clean_prompt(text: str) -> str:
+        if not text:
+            return ""
+        s = text.strip()
+        while s.startswith(",") or s.startswith("、") or s.startswith(" "):
+            s = s[1:].strip()
+        return s
+
     def append_tag(self, value):
-        current_text = self.prompt_input.toPlainText().strip()
+        current_text = self.clean_prompt(self.prompt_input.toPlainText())
+        value_clean = self.clean_prompt(value)
         if current_text:
-            self.prompt_input.setPlainText(f"{current_text}, {value}")
+            self.prompt_input.setPlainText(f"{current_text}, {value_clean}")
         else:
-            self.prompt_input.setPlainText(value)
+            self.prompt_input.setPlainText(value_clean)
 
     def get_selected_quality(self) -> str:
         if self.quality_hd.isChecked():
@@ -671,7 +682,8 @@ class PromptPanel(QWidget):
             self.append_tag(context["append_prompt"])
         else:
             self.prompt_input.blockSignals(True)
-            self.prompt_input.setPlainText(context.get("prompt_jp", ""))
+            cleaned_jp = self.clean_prompt(context.get("prompt_jp", ""))
+            self.prompt_input.setPlainText(cleaned_jp)
             self.prompt_input.blockSignals(False)
             self.neg_prompt_input.setPlainText(context.get("negative_prompt", ""))
             
