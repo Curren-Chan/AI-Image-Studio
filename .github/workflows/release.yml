@@ -31,7 +31,7 @@ jobs:
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+        run: python -m unittest discover -s tests -v
 
   build:
     needs: test
@@ -97,4 +97,3 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release-assets/*
-
