@@ -116,8 +116,8 @@ The bundle is written to `dist/GPTImageStudio/`. Test that folder on a clean mac
 Tagged releases are automated for Windows, macOS, and Linux:
 
 ```bash
-git tag v4.9.1
-git push origin v4.9.1
+git tag v4.9.6
+git push origin v4.9.6
 ```
 
 The [release workflow](.github/workflows/release.yml) runs tests, builds each platform, creates archives, and attaches them to a GitHub Release. See [`docs/PUBLISHING_CHECKLIST.md`](docs/PUBLISHING_CHECKLIST.md) before the first public push.
