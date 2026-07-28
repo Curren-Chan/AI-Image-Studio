@@ -12,6 +12,19 @@ and the project uses semantic versioning.
 - Reproducible multi-platform release workflow.
 - Automated public-repository security checks.
 
+## [4.9.1] - 2026-07-27
+
+### Fixed
+
+- Resolved thumbnail duplication and timestamp mismatch in Gallery.
+- Implemented path normalization and filename duplicate checks.
+
+## [4.9.0] - 2026-07-27
+
+### Added
+
+- Vision Prompt Fusion for OpenAI image editing and context continuity in GenerationService.
+
 ## [4.8.0] - 2026-07-27
 
 ### Added

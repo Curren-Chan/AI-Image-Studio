@@ -1,6 +1,6 @@
 [project]
 name = "gpt-image-studio"
-version = "4.8.0"
+version = "4.9.1"
 description = "A multi-provider desktop workspace for AI image generation, prompt translation, and visual asset management."
 readme = "README.md"
 requires-python = ">=3.10"
