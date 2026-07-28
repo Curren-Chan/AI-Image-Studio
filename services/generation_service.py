@@ -351,6 +351,8 @@ class GenerationService(BaseService):
             return "balance_fal"
         if provider == "xai":
             return "balance_grok"
+        if provider == "hotapi":
+            return "balance_hotapi"
         return "balance_openai"
 
     @staticmethod

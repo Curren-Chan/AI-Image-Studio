@@ -23,15 +23,19 @@ def import_legacy_history(conn, output_dir):
 
     This runs incrementally so an output whose DB insert failed can be recovered
     on the next launch instead of remaining permanently invisible.
+    Files are scanned outside DB transactions to prevent holding long SQLite locks.
     """
-    cursor = conn.cursor()
     if not os.path.isdir(output_dir):
         return
 
+    # 1. Fetch default project ID and existing records in a short read block
+    cursor = conn.cursor()
     cursor.execute(
         "INSERT OR IGNORE INTO projects (name, description) VALUES (?, ?);",
         ("Default Project", "Default workspace for imported images"),
     )
+    conn.commit()
+
     row = cursor.execute(
         "SELECT id FROM projects WHERE name = ?;", ("Default Project",)
     ).fetchone()
@@ -39,8 +43,19 @@ def import_legacy_history(conn, output_dir):
         return
     project_id = int(row[0])
 
-    imported_count = 0
-    for filename in os.listdir(output_dir):
+    existing_rows = cursor.execute("SELECT filename, lower(image_path) FROM images;").fetchall()
+    existing_filenames = {r[0] for r in existing_rows if r[0]}
+    existing_norm_paths = {r[1] for r in existing_rows if r[1]}
+
+    # 2. Disk I/O & JSON parsing completely outside DB transactions
+    to_insert = []
+    try:
+        filenames = os.listdir(output_dir)
+    except OSError as exc:
+        logging.warning("Could not list directory %s: %s", output_dir, exc)
+        return
+
+    for filename in filenames:
         if not filename.lower().endswith(".json"):
             continue
         metadata_path = os.path.join(output_dir, filename)
@@ -51,14 +66,11 @@ def import_legacy_history(conn, output_dir):
         )
         if image_path is None:
             continue
-            
+
         norm_image_path = normalize_path(image_path)
         base_img_name = os.path.basename(image_path)
 
-        if cursor.execute(
-            "SELECT 1 FROM images WHERE filename = ? OR lower(image_path) = ? LIMIT 1;", 
-            (base_img_name, norm_image_path.lower())
-        ).fetchone():
+        if base_img_name in existing_filenames or norm_image_path.lower() in existing_norm_paths:
             continue
 
         try:
@@ -84,41 +96,49 @@ def import_legacy_history(conn, output_dir):
                 except ValueError:
                     created_at_str = datetime.fromtimestamp(os.path.getmtime(image_path)).strftime("%Y-%m-%d %H:%M:%S")
 
-            cursor.execute(
-                """
-                INSERT INTO images (
-                    project_id, filename, image_path, prompt_jp, prompt_en,
-                    negative_prompt, size, style, quality, cost, favorite,
-                    created_at, model_id, model_name, provider, style_preset,
-                    expert_params
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    project_id,
-                    base_img_name,
-                    image_path,
-                    str(meta.get("prompt_jp", "") or ""),
-                    str(meta.get("prompt_en", "") or ""),
-                    str(meta.get("negative_prompt", "") or ""),
-                    str(meta.get("size", "1024x1024") or "1024x1024"),
-                    str(meta.get("style", "プリセット無し") or "プリセット無し"),
-                    str(meta.get("quality", "standard") or "standard"),
-                    cost,
-                    1 if meta.get("favorite", False) else 0,
-                    created_at_str,
-                    meta.get("model_id"),
-                    meta.get("model_name"),
-                    meta.get("provider"),
-                    meta.get("style_preset"),
-                    meta.get("expert_params"),
-                ),
-            )
-            imported_count += 1
+            to_insert.append((
+                project_id,
+                base_img_name,
+                image_path,
+                str(meta.get("prompt_jp", "") or ""),
+                str(meta.get("prompt_en", "") or ""),
+                str(meta.get("negative_prompt", "") or ""),
+                str(meta.get("size", "1024x1024") or "1024x1024"),
+                str(meta.get("style", "プリセット無し") or "プリセット無し"),
+                str(meta.get("quality", "standard") or "standard"),
+                cost,
+                1 if meta.get("favorite", False) else 0,
+                created_at_str,
+                meta.get("model_id"),
+                meta.get("model_name"),
+                meta.get("provider"),
+                meta.get("style_preset"),
+                meta.get("expert_params"),
+            ))
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             logging.warning("Skipped invalid metadata file %s: %s", filename, exc)
         except Exception as exc:
             logging.error("Failed to import metadata file %s: %s", filename, exc)
 
-    conn.commit()
-    if imported_count:
+    # 3. Batch DB insert in a short transaction
+    if not to_insert:
+        return
+
+    imported_count = 0
+    try:
+        cursor.executemany(
+            """
+            INSERT INTO images (
+                project_id, filename, image_path, prompt_jp, prompt_en,
+                negative_prompt, size, style, quality, cost, favorite,
+                created_at, model_id, model_name, provider, style_preset,
+                expert_params
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            to_insert,
+        )
+        conn.commit()
+        imported_count = len(to_insert)
         logging.info("Recovered %s output record(s) into SQLite.", imported_count)
+    except Exception as exc:
+        logging.error("Failed to batch insert legacy history records: %s", exc)

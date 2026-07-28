@@ -28,7 +28,7 @@ class ButtonDebounceAndQueueGuardTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def test_queue_deduplication_guard_prevents_duplicate_pending_jobs(self):
+    def test_queue_allows_duplicate_prompts(self):
         job1_id = self.queue_service.add_job(
             project_id=1,
             prompt_jp="テスト用プロンプト",
@@ -41,7 +41,7 @@ class ButtonDebounceAndQueueGuardTests(unittest.TestCase):
         )
         self.assertGreater(job1_id, 0)
 
-        # Immediate duplicate submission
+        # Second submission with exact same prompt
         job2_id = self.queue_service.add_job(
             project_id=1,
             prompt_jp="テスト用プロンプト",
@@ -52,12 +52,12 @@ class ButtonDebounceAndQueueGuardTests(unittest.TestCase):
             batch_count=1,
             model_id="openai-gpt-image-2",
         )
-        # Should return the existing pending job ID without creating a new duplicate
-        self.assertEqual(job1_id, job2_id)
+        # Without deduplication guard, each submission creates a separate job
+        self.assertNotEqual(job1_id, job2_id)
 
         jobs = self.queue_service.get_jobs()
         pending_jobs = [j for j in jobs if j["status"] == "Pending"]
-        self.assertEqual(len(pending_jobs), 1)
+        self.assertEqual(len(pending_jobs), 2)
 
     def test_queue_allows_different_prompts(self):
         job1_id = self.queue_service.add_job(

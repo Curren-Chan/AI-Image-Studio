@@ -37,6 +37,7 @@ class Coordinator:
     ):
         logging.info("Initializing Coordinator Facade...")
         self._shutdown_requested = False
+        self.bg_threads: list = []
         
         # 1. Setup SQLite database connection & schemas
         if project_root is None:
@@ -64,7 +65,9 @@ class Coordinator:
                 logging.warning(f"Background legacy history import failed: {e}")
             finally:
                 bg_conn.close()
-        threading.Thread(target=_bg_import, daemon=True).start()
+        import_thread = threading.Thread(target=_bg_import, daemon=True, name="BackgroundLegacyImport")
+        import_thread.start()
+        self.bg_threads.append(import_thread)
         
         # 2. Initialize Service Layer
         self.settings_service = SettingsService(self.db_service, project_root=project_root)
@@ -118,7 +121,12 @@ class Coordinator:
         if not self._shutdown_requested:
             logging.info("Shutting down Coordinator Facade...")
             self._shutdown_requested = True
+
         stopped = self.queue_service.stop_consumer(timeout_seconds=timeout_seconds)
+        for t in self.bg_threads:
+            if t.is_alive():
+                t.join(timeout=1.0)
+
         if stopped:
             logging.info("Shutdown completed.")
         return stopped

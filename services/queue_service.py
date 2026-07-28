@@ -1,5 +1,7 @@
 import logging
+import sqlite3
 import threading
+import time
 
 from core.event_bus import event_bus
 from services.base import BaseService
@@ -13,24 +15,59 @@ class QueueService(BaseService):
     def __init__(self, db_service=None):
         super().__init__(db_service)
         self.consumer = None
+        self.generation_service = None
         self._recovery_done = False
+        self._consumer_lock = threading.Lock()
+        self._shutting_down = False
+        self._wake_event = threading.Event()
+        self._last_error = None
+        self._continuous_failures = 0
 
     def start_consumer(self, generation_service):
-        if self.consumer and self.consumer.is_alive():
-            return
+        self.generation_service = generation_service
         if not self._recovery_done:
             self.recover_interrupted_jobs()
             self._recovery_done = True
-        self.consumer = QueueConsumer(self, generation_service)
-        self.consumer.start()
+        self.ensure_consumer_running()
+
+    def ensure_consumer_running(self, generation_service=None):
+        if generation_service:
+            self.generation_service = generation_service
+            
+        if self._shutting_down:
+            return
+
+        with self._consumer_lock:
+            if self.consumer and self.consumer.is_alive():
+                self._wake_event.set()
+                return
+
+            if self.generation_service:
+                logging.info("[QUEUE SERVICE] Starting QueueConsumer worker thread...")
+                self.consumer = QueueConsumer(self, self.generation_service)
+                self.consumer.start()
+                self._wake_event.set()
 
     def stop_consumer(self, timeout_seconds: float | None = 0.0) -> bool:
-        if not self.consumer:
-            return True
-        self.consumer.stop()
-        timeout = None if timeout_seconds is None else max(0.0, timeout_seconds)
-        self.consumer.join(timeout=timeout)
-        return not self.consumer.is_alive()
+        self._shutting_down = True
+        self._wake_event.set()
+        with self._consumer_lock:
+            if not self.consumer:
+                return True
+            self.consumer.stop()
+            self._wake_event.set()
+            timeout = None if timeout_seconds is None else max(0.0, timeout_seconds)
+            self.consumer.join(timeout=timeout)
+            return not self.consumer.is_alive()
+
+    def get_consumer_status(self) -> str:
+        if self._shutting_down:
+            return "shutting_down"
+        if self.consumer and self.consumer.is_alive():
+            return "running"
+        if self._continuous_failures > 5:
+            return "faulted"
+        return "stopped"
 
     def recover_interrupted_jobs(self) -> int:
         """Pause unfinished jobs; the user explicitly resumes them after restart."""
@@ -80,28 +117,6 @@ class QueueService(BaseService):
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            # Deduplication Guard: Ignore rapid duplicated Pending jobs with exact same parameters
-            existing = cursor.execute(
-                """
-                SELECT id FROM jobs 
-                WHERE status = 'Pending' 
-                  AND project_id = ? 
-                  AND prompt_jp = ? 
-                  AND size = ? 
-                  AND (model_id = ? OR (model_id IS NULL AND ? IS NULL))
-                  AND mode = ? 
-                  AND (image_path = ? OR (image_path IS NULL AND ? IS NULL))
-                ORDER BY id DESC LIMIT 1;
-                """,
-                (project_id, prompt_jp, size, model_id, model_id, mode, image_path, image_path),
-            ).fetchone()
-            if existing:
-                logging.warning(
-                    "[QUEUE GUARD] Ignored duplicate job submission for existing pending job ID %s",
-                    existing[0],
-                )
-                return existing[0]
-
             cursor.execute(
                 """
                 INSERT INTO jobs (
@@ -136,8 +151,12 @@ class QueueService(BaseService):
         finally:
             if conn is not None:
                 conn.close()
+
         event_bus.job_added.emit(job_id)
         event_bus.queue_updated.emit()
+
+        # Self-contained worker lifecycle management & wake signal
+        self.ensure_consumer_running()
         return job_id
 
     def get_jobs(self) -> list:
@@ -206,7 +225,10 @@ class QueueService(BaseService):
         return changed
 
     def resume_job(self, job_id: int) -> bool:
-        return self.update_job_status(job_id, "Pending", RESUMABLE_STATUSES)
+        success = self.update_job_status(job_id, "Pending", RESUMABLE_STATUSES)
+        if success:
+            self.ensure_consumer_running()
+        return success
 
     def delete_job(self, job_id: int) -> bool:
         conn = None
@@ -259,39 +281,67 @@ class QueueService(BaseService):
             event_bus.queue_updated.emit()
         return cancelled
 
+    def claim_next_pending_job_with_status(self) -> tuple[dict | None, bool]:
+        """Atomically transition one Pending job to Running and return (job, is_db_locked)."""
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            conn = None
+            try:
+                conn = self.get_connection()
+                conn.execute("BEGIN IMMEDIATE;")
+                row = conn.execute(
+                    "SELECT * FROM jobs WHERE status = 'Pending' ORDER BY id ASC LIMIT 1;"
+                ).fetchone()
+                if not row:
+                    conn.rollback()
+                    return None, False
+                job_id = int(row["id"])
+                cursor = conn.execute(
+                    "UPDATE jobs SET status = 'Running' "
+                    "WHERE id = ? AND status = 'Pending';",
+                    (job_id,),
+                )
+                if cursor.rowcount != 1:
+                    conn.rollback()
+                    return None, False
+                conn.commit()
+                result = dict(row)
+                result["status"] = "Running"
+                return result, False
+            except (sqlite3.OperationalError, sqlite3.DatabaseError) as exc:
+                if conn is not None:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                msg = str(exc).lower()
+                if "locked" in msg or "busy" in msg:
+                    if attempt < max_attempts - 1:
+                        time.sleep(0.05 * (attempt + 1))
+                        continue
+                    logging.warning("SQLite DB is temporarily busy while claiming job: %s", exc)
+                    return None, True
+                logging.error("Database error claiming pending job: %s", exc)
+                return None, False
+            except Exception as exc:
+                if conn is not None:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                logging.error("Failed to claim pending job: %s", exc)
+                return None, False
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        return None, True
+
     def claim_next_pending_job(self) -> dict | None:
-        """Atomically transition one Pending job to Running and return it."""
-        conn = None
-        try:
-            conn = self.get_connection()
-            conn.execute("BEGIN IMMEDIATE;")
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE status = 'Pending' ORDER BY id ASC LIMIT 1;"
-            ).fetchone()
-            if not row:
-                conn.rollback()
-                return None
-            job_id = int(row["id"])
-            cursor = conn.execute(
-                "UPDATE jobs SET status = 'Running' "
-                "WHERE id = ? AND status = 'Pending';",
-                (job_id,),
-            )
-            if cursor.rowcount != 1:
-                conn.rollback()
-                return None
-            conn.commit()
-            result = dict(row)
-            result["status"] = "Running"
-            return result
-        except Exception as exc:
-            if conn is not None:
-                conn.rollback()
-            logging.error("Failed to claim pending job: %s", exc)
-            return None
-        finally:
-            if conn is not None:
-                conn.close()
+        job, _ = self.claim_next_pending_job_with_status()
+        return job
 
     def record_completed_item(self, job_id: int) -> bool:
         conn = None
@@ -328,11 +378,23 @@ class QueueService(BaseService):
             if conn is not None:
                 conn.close()
 
+    def has_pending_jobs(self) -> bool:
+        conn = None
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT 1 FROM jobs WHERE status = 'Pending' LIMIT 1;"
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+        finally:
+            if conn is not None:
+                conn.close()
+
 
 class QueueConsumer(threading.Thread):
     def __init__(self, queue_service, generation_service):
-        # A non-daemon worker prevents Python/Qt teardown while native provider
-        # code is still using signals, SQLite, or output files.
         super().__init__(name="QueueConsumer", daemon=False)
         self.queue_service = queue_service
         self.generation_service = generation_service
@@ -343,19 +405,32 @@ class QueueConsumer(threading.Thread):
 
     def run(self):
         logging.info("Queue Consumer Thread started.")
+        backoff_delay = 0.1
+
         while not self._stop_event.is_set():
-            job = self.queue_service.claim_next_pending_job()
-            if not job:
-                self._stop_event.wait(0.25)
+            job, is_db_locked = self.queue_service.claim_next_pending_job_with_status()
+            if is_db_locked:
+                time.sleep(backoff_delay)
+                backoff_delay = min(1.0, backoff_delay * 1.5)
                 continue
 
-            job_id = int(job["id"])
-            logging.info("Consumer picked up job %s: %s", job_id, job["prompt_jp"])
-            batch_count = max(1, int(job.get("batch_count") or 1))
-            completed_count = max(0, int(job.get("completed_count") or 0))
-            failed = False
+            backoff_delay = 0.1
 
+            if not job:
+                self.queue_service._wake_event.clear()
+                if not self.queue_service.has_pending_jobs():
+                    self.queue_service._wake_event.wait(0.5)
+                continue
+
+            # Per-job exception boundary: One bad job will not crash the worker thread
+            job_id = None
             try:
+                job_id = int(job["id"])
+                logging.info("Consumer picked up job %s: %s", job_id, job.get("prompt_jp"))
+                batch_count = max(1, int(job.get("batch_count") or 1))
+                completed_count = max(0, int(job.get("completed_count") or 0))
+                failed = False
+
                 for idx in range(completed_count, batch_count):
                     if self._stop_event.is_set():
                         break
@@ -365,18 +440,18 @@ class QueueConsumer(threading.Thread):
                     event_bus.progress_updated.emit(int((idx / batch_count) * 100))
 
                     result = self.generation_service.generate_single(
-                        project_id=job["project_id"],
-                        prompt_jp=job["prompt_jp"] or "",
-                        translation_rule=job["style"] or "Standard",
-                        size=job["size"] or "1024x1024",
-                        negative_prompt=job["negative_prompt"] or "",
-                        quality=job["quality"] or "standard",
-                        model_id=job["model_id"],
-                        mode=job["mode"] or "generate",
-                        image_path=job["image_path"],
-                        mask_path=job["mask_path"],
-                        style_preset=job["style_preset"],
-                        expert_params=job["expert_params"],
+                        project_id=job.get("project_id"),
+                        prompt_jp=job.get("prompt_jp") or "",
+                        translation_rule=job.get("style") or "Standard",
+                        size=job.get("size") or "1024x1024",
+                        negative_prompt=job.get("negative_prompt") or "",
+                        quality=job.get("quality") or "standard",
+                        model_id=job.get("model_id"),
+                        mode=job.get("mode") or "generate",
+                        image_path=job.get("image_path"),
+                        mask_path=job.get("mask_path"),
+                        style_preset=job.get("style_preset"),
+                        expert_params=job.get("expert_params"),
                     )
 
                     if not result.get("success"):
@@ -413,11 +488,16 @@ class QueueConsumer(threading.Thread):
                     event_bus.status_updated.emit(
                         f"Job {job_id} paused during application shutdown."
                     )
+                self.queue_service._continuous_failures = 0
             except Exception as exc:
+                self.queue_service._continuous_failures += 1
+                self.queue_service._last_error = str(exc)
                 logging.exception("Error while processing queue job %s", job_id)
-                self.queue_service.update_job_status(
-                    job_id, "Failed", expected_statuses=("Running",)
-                )
-                event_bus.status_updated.emit(f"Job {job_id} failed: {exc}")
+                if job_id is not None:
+                    self.queue_service.update_job_status(
+                        job_id, "Failed", expected_statuses=("Running",)
+                    )
+                    event_bus.status_updated.emit(f"Job {job_id} failed: {exc}")
 
         logging.info("Queue Consumer Thread terminated.")
+

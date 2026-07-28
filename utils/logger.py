@@ -13,6 +13,8 @@ def setup_logger():
     
     # Configure root logger
     logger = logging.getLogger()
+    if logger.handlers:
+        return
     logger.setLevel(logging.INFO)
     
     # Formatters

@@ -22,6 +22,7 @@ class RefactoredGuiTests(unittest.TestCase):
             window.close()
             TEST_APP.processEvents()
             self.assertFalse(window.isVisible())
+            coordinator.shutdown(timeout_seconds=1.0)
 
 
 if __name__ == "__main__":

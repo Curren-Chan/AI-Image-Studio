@@ -23,7 +23,7 @@ class HistoryService(BaseService):
                     WHERE id NOT IN (
                         SELECT MAX(id) 
                         FROM images 
-                        GROUP BY filename
+                        GROUP BY lower(image_path)
                     );
                 """)
                 deleted_count = cursor.rowcount
