@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QPushButton, QComboBox, QRadioButton, QSpinBox, QGroupBox, 
     QGridLayout, QFrame, QLineEdit, QMessageBox, QButtonGroup, QStackedWidget
 )
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Slot, QTimer
 from PySide6.QtGui import QIntValidator
 from core.event_bus import event_bus
 from api.model_registry import MODEL_REGISTRY
