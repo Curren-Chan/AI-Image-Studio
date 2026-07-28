@@ -67,7 +67,10 @@ class OpenAiTranslator(BaseTranslator):
                 temperature=0.7,
                 max_tokens=300
             )
-            expanded_prompt = response.choices[0].message.content.strip()
+            expanded_prompt = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
+            if not expanded_prompt or not expanded_prompt.strip():
+                logging.warning("OpenAI returned empty prompt. Falling back to input Japanese prompt.")
+                expanded_prompt = prompt_jp
             cost = self.calculate_cost(system_prompt + user_prompt, expanded_prompt)
             return expanded_prompt, cost
         except Exception as e:
@@ -126,7 +129,10 @@ class OpenAiTranslator(BaseTranslator):
                 temperature=0.7,
                 max_tokens=300
             )
-            expanded_prompt = response.choices[0].message.content.strip()
+            expanded_prompt = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
+            if not expanded_prompt or not expanded_prompt.strip():
+                logging.warning("OpenAI returned empty modified prompt. Falling back to previous prompt or new request.")
+                expanded_prompt = f"{prev_en}, {new_jp}" if prev_en else new_jp
             cost = self.calculate_cost(system_prompt + user_prompt, expanded_prompt)
             return expanded_prompt, cost
         except Exception as e:

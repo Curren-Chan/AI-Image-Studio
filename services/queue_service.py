@@ -79,6 +79,29 @@ class QueueService(BaseService):
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
+
+            # Deduplication Guard: Ignore rapid duplicated Pending jobs with exact same parameters
+            existing = cursor.execute(
+                """
+                SELECT id FROM jobs 
+                WHERE status = 'Pending' 
+                  AND project_id = ? 
+                  AND prompt_jp = ? 
+                  AND size = ? 
+                  AND (model_id = ? OR (model_id IS NULL AND ? IS NULL))
+                  AND mode = ? 
+                  AND (image_path = ? OR (image_path IS NULL AND ? IS NULL))
+                ORDER BY id DESC LIMIT 1;
+                """,
+                (project_id, prompt_jp, size, model_id, model_id, mode, image_path, image_path),
+            ).fetchone()
+            if existing:
+                logging.warning(
+                    "[QUEUE GUARD] Ignored duplicate job submission for existing pending job ID %s",
+                    existing[0],
+                )
+                return existing[0]
+
             cursor.execute(
                 """
                 INSERT INTO jobs (

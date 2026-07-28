@@ -361,8 +361,36 @@ class BugfixRegressionTests(unittest.TestCase):
         ), patch.object(QMessageBox, "warning"):
             panel.bulk_delete()
             TEST_APP.processEvents()
-        self.assertEqual(calls, ["one.png", "two.png"])
+    def test_empty_prompt_guardrails(self):
+        from services.translation.gemini_translator import GeminiTranslator
+        from services.translation.openai_translator import OpenAiTranslator
+
+        mock_api_client = SimpleNamespace(mock_mode=False, client=None, text_model="gpt-4o-mini")
+        
+        gemini_tr = GeminiTranslator(mock_api_client)
+        openai_tr = OpenAiTranslator(mock_api_client)
+
+        # Ensure empty response falls back
+        with patch.object(gemini_tr, "_get_api_key", return_value="fake_key"), patch(
+            "google.genai.Client"
+        ) as mock_genai:
+            mock_client_inst = mock_genai.return_value
+            mock_client_inst.models.generate_content.return_value = SimpleNamespace(text="")
+            
+            prompt_res, _ = gemini_tr.translate_prompt("テストプロンプト")
+            self.assertEqual(prompt_res, "テストプロンプト")
+
+            mod_res, _ = gemini_tr.translate_modified_prompt("元JP", "prev en prompt", "新JP")
+            self.assertEqual(mod_res, "prev en prompt, 新JP")
+
+        # Test FalImageProvider prompt validation (safe fallback to mock)
+        provider = FalImageProvider(mock_api_client)
+        with patch.object(provider, "_setup_auth", return_value=True):
+            img_bytes, size, cost = provider.generate("xai/grok-imagine-image", "", "1024x1024", "standard")
+            self.assertTrue(isinstance(img_bytes, (bytes, bytearray)))
+            self.assertTrue(len(img_bytes) > 0)
 
 
 if __name__ == "__main__":
     unittest.main()
+

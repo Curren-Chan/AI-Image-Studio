@@ -83,6 +83,9 @@ class GeminiTranslator(BaseTranslator):
             )
             text_val = response.text
             expanded_prompt = text_val.strip() if text_val else ""
+            if not expanded_prompt or not expanded_prompt.strip():
+                logging.warning("Gemini returned empty prompt. Falling back to input Japanese prompt.")
+                expanded_prompt = prompt_jp
             cost = self.calculate_cost(system_prompt + user_prompt, expanded_prompt)
             return expanded_prompt, cost
         except Exception as e:
@@ -153,6 +156,9 @@ class GeminiTranslator(BaseTranslator):
             )
             text_val = response.text
             expanded_prompt = text_val.strip() if text_val else ""
+            if not expanded_prompt or not expanded_prompt.strip():
+                logging.warning("Gemini returned empty modified prompt. Falling back to previous prompt or new request.")
+                expanded_prompt = f"{prev_en}, {new_jp}" if prev_en else new_jp
             cost = self.calculate_cost(system_prompt + user_prompt, expanded_prompt)
             return expanded_prompt, cost
         except Exception as e:

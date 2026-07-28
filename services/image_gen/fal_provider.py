@@ -59,6 +59,8 @@ class FalImageProvider(BaseImageProvider):
 
         try:
             import fal_client
+            if not prompt or not prompt.strip():
+                raise ValueError("Prompt cannot be empty. Please provide a prompt.")
             logging.info(f"[FAL] Running text2img: {model_endpoint} with prompt: {prompt}")
             
             # Map size
@@ -175,6 +177,8 @@ class FalImageProvider(BaseImageProvider):
 
         try:
             import fal_client
+            if not prompt or not prompt.strip():
+                raise ValueError("Prompt cannot be empty. Please provide a prompt.")
             logging.info(f"[FAL] Uploading source image: {image_path}")
             image_url = fal_client.upload_file(Path(image_path))
             

@@ -19,6 +19,7 @@ class PromptPanel(QWidget):
     def __init__(self, coordinator, parent=None):
         super().__init__(parent)
         self.coordinator = coordinator
+        self.last_request_time = 0.0
         self.init_ui()
         self.load_presets()
         
@@ -542,7 +543,19 @@ class PromptPanel(QWidget):
             return "hd"
         return "standard"
 
+    def _reset_generate_button(self):
+        if hasattr(self, "generate_btn") and self.generate_btn:
+            self.generate_btn.setText("Generate")
+            self.generate_btn.setEnabled(True)
+
     def request_generation(self):
+        import time
+        now = time.time()
+        if now - self.last_request_time < 0.8:
+            logging.warning("[DEBOUNCE] Generation button click ignored (too rapid).")
+            return
+        self.last_request_time = now
+
         self.hide_advice_banner()
         prompt_jp = self.prompt_input.toPlainText().strip()
         if not prompt_jp:
@@ -599,6 +612,12 @@ class PromptPanel(QWidget):
         if target_widget and hasattr(target_widget, "get_expert_params_json"):
             expert_params = target_widget.get_expert_params_json()
             
+        # Temporary UI Feedback and Lock (800ms)
+        if hasattr(self, "generate_btn") and self.generate_btn:
+            self.generate_btn.setEnabled(False)
+            self.generate_btn.setText("🚀 追加中...")
+            QTimer.singleShot(800, self._reset_generate_button)
+
         # Emit generation event (handled by MainWindow or Coordinator)
         event_bus.generation_requested.emit({
             "prompt_jp": prompt_jp,

@@ -163,6 +163,9 @@ class GenerationService(BaseService):
                 quality,
             )
             prompt_en_final = self._apply_style_preset(prompt_en, style_preset)
+            if not prompt_en_final or not prompt_en_final.strip():
+                logging.warning("Final translated prompt is empty. Falling back to prompt_jp.")
+                prompt_en_final = prompt_jp
 
             if mode == "edit":
                 assert image_path is not None
